@@ -32,8 +32,8 @@ actor_rollout_ref:
     override_config: { }
     enable_gradient_checkpointing: False
     use_remove_padding: False
-    lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
-    lora_alpha: 32  # LoRA scaling factor
+    lora_rank: 32  # Set to positive value to enable LoRA (e.g., 32)
+    lora_alpha: 64  # LoRA scaling factor
     target_modules: all-linear  
   actor:
     vla: ${actor_rollout_ref.model.vla}
@@ -142,8 +142,8 @@ critic:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
       fsdp_size: -1
-    lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
-    lora_alpha: 32  # LoRA scaling factor
+    lora_rank: 32  # Set to positive value to enable LoRA (e.g., 32)
+    lora_alpha: 64  # LoRA scaling factor
     target_modules: all-linear 
     type: value # if set to implicit, this will become an implicit PRM which updates according to gt. this only supports initializing from the reference model currently.
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}

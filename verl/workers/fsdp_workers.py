@@ -224,16 +224,27 @@ class RobActorRolloutRefWorker(Worker):
             if self._is_lora:
                 print("Applying LoRA to actor module")
                 
+                # Get target modules for OpenVLA-OFT specifically
+                target_modules = self._get_lora_target_modules(actor_module)
+                
                 lora_config = {
-                    #'task_type': TaskType.CAUSAL_LM,
+                    'task_type': TaskType.CAUSAL_LM,
                     'r': self.config.model.lora_rank,
                     'lora_alpha': self.config.model.lora_alpha,
-                    "lora_dropout": 0 ,
-                    'target_modules': convert_to_regular_types(self.config.model.target_modules),
-                    'init_lora_weights': "gaussian"
+                    "lora_dropout": 0.1,
+                    'target_modules': target_modules,
+                    'init_lora_weights': "gaussian",
+                    'bias': "none",
+                    'use_rslora': False,
+                    'modules_to_save': None,
                 }
                 actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))  
                 actor_module.print_trainable_parameters()
+                
+                # Verify parameter freezing
+                frozen_params = sum(1 for p in actor_module.parameters() if not p.requires_grad)
+                trainable_params = sum(1 for p in actor_module.parameters() if p.requires_grad)
+                print(f"LoRA verification - Frozen: {frozen_params}, Trainable: {trainable_params}", flush=True)
             # lora end
                 
                 
@@ -631,6 +642,37 @@ class RobActorRolloutRefWorker(Worker):
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
+
+    def _get_lora_target_modules(self, model):
+        """Get LoRA target modules for OpenVLA-OFT models."""
+        target_modules_config = convert_to_regular_types(self.config.model.target_modules)
+        
+        if target_modules_config == "all-linear":
+            # Automatically find all linear layers in the model
+            target_modules = []
+            for name, module in model.named_modules():
+                if isinstance(module, torch.nn.Linear):
+                    # Skip output layers and embeddings for stability
+                    if not any(skip in name.lower() for skip in ["embed", "head", "norm", "ln"]):
+                        parts = name.split('.')
+                        if len(parts) > 0:
+                            target_modules.append(parts[-1])
+            
+            # Remove duplicates while preserving order
+            target_modules = list(dict.fromkeys(target_modules))
+            
+            # Default target modules for OpenVLA-OFT if auto-detection fails
+            if not target_modules:
+                target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                
+        elif isinstance(target_modules_config, list):
+            target_modules = target_modules_config
+        else:
+            # Default target modules for transformer models
+            target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+            
+        print(f"LoRA target modules: {target_modules}")
+        return target_modules
 
 
 class ActorRolloutRefWorker(Worker):
