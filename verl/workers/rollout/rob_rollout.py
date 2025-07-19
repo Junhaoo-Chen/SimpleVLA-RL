@@ -48,14 +48,30 @@ from collections import defaultdict
 import time
 import logging
 
-# Set up detailed timing logger
+# Set up configurable timing logger
 timing_logger = logging.getLogger('rollout_timing')
-timing_logger.setLevel(logging.INFO)
+# Default to WARNING level (timing logs disabled)
+timing_logger.setLevel(logging.WARNING)
 if not timing_logger.handlers:
     handler = logging.StreamHandler()
     formatter = logging.Formatter('[TIMING] %(asctime)s - %(message)s')
     handler.setFormatter(formatter)
     timing_logger.addHandler(handler)
+
+def configure_timing_logger(log_level='warning'):
+    """Configure timing logger based on log level setting."""
+    level_map = {
+        'debug': logging.DEBUG,
+        'info': logging.INFO, 
+        'warning': logging.WARNING,
+        'error': logging.ERROR
+    }
+    
+    level = level_map.get(log_level.lower(), logging.WARNING)
+    timing_logger.setLevel(level)
+    
+    # Enable detailed timing logs only for debug level
+    return level <= logging.DEBUG
 
 __all__ = ['RobHFRollout']
 
@@ -236,6 +252,11 @@ class RobHFRollout(BaseRollout):
         super().__init__()
         self.config = config
         self.module = module
+        
+        # Configure timing logger based on config
+        log_level = getattr(config, 'timing_log_level', 'warning')
+        self.enable_detailed_timing = configure_timing_logger(log_level)
+        
         self.max_steps = {   "libero_spatial": 512,   # max step length 193
                                     "libero_object": 512,    # max step length 254
                                     "libero_goal": 512,      # max step length 270
@@ -244,6 +265,18 @@ class RobHFRollout(BaseRollout):
                                 }
         self.processor = AutoProcessor.from_pretrained(config.pretrained_checkpoint, trust_remote_code=True)
         self.vla_preprocess()
+    
+    def log_timing(self, message, level='info'):
+        """Conditional timing logging based on configuration."""
+        if self.enable_detailed_timing:
+            if level == 'info':
+                timing_logger.info(message)
+            elif level == 'debug':
+                timing_logger.debug(message)
+            elif level == 'warning':
+                timing_logger.warning(message)
+            elif level == 'error':
+                timing_logger.error(message)
         
         #oft add
         # unnorm_key=config.unnorm_key
@@ -273,7 +306,7 @@ class RobHFRollout(BaseRollout):
     def generate_sequences(self, prompts):
         rollout_start_time = time.time()
         batch_size = prompts.batch.batch_size[0]
-        timing_logger.info(f"=== ROLLOUT START: batch_size={batch_size} ===")
+        self.log_timing(f"=== ROLLOUT START: batch_size={batch_size} ===")
         
         if prompts.meta_info.get('n_samples') is None:
             micro_batch_size = self.config.val_micro_batch_size if self.config.val_micro_batch_size is not None else 1
@@ -281,7 +314,7 @@ class RobHFRollout(BaseRollout):
             micro_batch_size = self.config.get('micro_batch_size', batch_size)
         
         num_chunks = max(batch_size // micro_batch_size, 1)
-        timing_logger.info(f"Chunking: micro_batch_size={micro_batch_size}, num_chunks={num_chunks}")
+        self.log_timing(f"Chunking: micro_batch_size={micro_batch_size}, num_chunks={num_chunks}")
         
         batch_prompts = prompts.chunk(chunks=num_chunks)
         
@@ -291,18 +324,18 @@ class RobHFRollout(BaseRollout):
             result = self._generate_minibatch(p)
             chunk_time = time.time() - chunk_start
             chunk_times.append(chunk_time)
-            timing_logger.info(f"Chunk {i+1}/{num_chunks} completed in {chunk_time:.2f}s")
+            self.log_timing(f"Chunk {i+1}/{num_chunks} completed in {chunk_time:.2f}s")
         
         output = DataProto.concat([self._generate_minibatch(p) for p in batch_prompts])
         
         total_time = time.time() - rollout_start_time
-        timing_logger.info(f"=== ROLLOUT COMPLETE: Total time={total_time:.2f}s, Avg chunk time={sum(chunk_times)/len(chunk_times):.2f}s ===")
+        self.log_timing(f"=== ROLLOUT COMPLETE: Total time={total_time:.2f}s, Avg chunk time={sum(chunk_times)/len(chunk_times):.2f}s ===")
         return output
     
     
     def process_input(self,inputs:list, task_descriptions:list):
         process_start = time.time()
-        timing_logger.info(f"Processing input batch: {len(inputs)} samples")
+        self.log_timing(f"Processing input batch: {len(inputs)} samples")
         
         batchdata = {"input_ids":[],"attention_mask":[],"pixel_values":[]}  
         
@@ -366,7 +399,7 @@ class RobHFRollout(BaseRollout):
                 batchdata[key] = torch.cat(batchdata[key], dim=0).to(device)
 
         process_time = time.time() - process_start
-        timing_logger.info(f"Input processing completed in {process_time:.3f}s")
+        self.log_timing(f"Input processing completed in {process_time:.3f}s")
         return batchdata
    
     
@@ -384,7 +417,7 @@ class RobHFRollout(BaseRollout):
         is_valid = meta_info.get('n_samples') is None
         global_steps = meta_info.get('global_steps', 0) if is_valid else 0
         
-        timing_logger.info(f"--- Minibatch start: batch_size={batch_size}, n_samples={n_samples}, max_steps={max_steps} ---")
+        self.log_timing(f"--- Minibatch start: batch_size={batch_size}, n_samples={n_samples}, max_steps={max_steps} ---")
         
         # Environment setup timing
         env_setup_start = time.time()
@@ -408,7 +441,7 @@ class RobHFRollout(BaseRollout):
             output_queues.append(output_q)
         
         env_setup_time = time.time() - env_setup_start
-        timing_logger.info(f"Environment setup completed in {env_setup_time:.3f}s")
+        self.log_timing(f"Environment setup completed in {env_setup_time:.3f}s")
         
         # Environment initialization timing
         env_init_start = time.time()
@@ -431,7 +464,7 @@ class RobHFRollout(BaseRollout):
                 valid_video[init_data['task_file_name']].extend(init_data['valid_images'])
         
         env_init_time = time.time() - env_init_start
-        timing_logger.info(f"Environment initialization completed in {env_init_time:.3f}s")
+        self.log_timing(f"Environment initialization completed in {env_init_time:.3f}s")
         
         # Main rollout loop timing
         step = 0
@@ -442,7 +475,7 @@ class RobHFRollout(BaseRollout):
         while step < max_steps:
             step_start_time = time.time()
             active_indices = [i for i, r in enumerate(task_records) if r['active']]
-            timing_logger.info(f"Step {step}: {len(active_indices)} active environments")
+            self.log_timing(f"Step {step}: {len(active_indices)} active environments")
             
             current_inputs = inputs
             current_task_descriptions = task_descriptions
@@ -455,7 +488,7 @@ class RobHFRollout(BaseRollout):
             actions = vla_output["action"]
             generation_time = time.time() - generation_start
             generation_times.append(generation_time)
-            timing_logger.info(f"  VLA generation: {generation_time:.3f}s")
+            self.log_timing(f"  VLA generation: {generation_time:.3f}s")
             
             step_data = {
                     "responses": vla_output["responses"],
@@ -486,11 +519,11 @@ class RobHFRollout(BaseRollout):
             inputs = new_inputs
             env_step_time = time.time() - env_step_start
             env_step_times.append(env_step_time)
-            timing_logger.info(f"  Environment steps: {env_step_time:.3f}s")
+            self.log_timing(f"  Environment steps: {env_step_time:.3f}s")
             
             step_total_time = time.time() - step_start_time
             step_times.append(step_total_time)
-            timing_logger.info(f"  Step {step} total: {step_total_time:.3f}s")
+            self.log_timing(f"  Step {step} total: {step_total_time:.3f}s")
             
             step += self.config.action_chunks_len
             
@@ -505,7 +538,7 @@ class RobHFRollout(BaseRollout):
         
         torch.cuda.empty_cache()
         cleanup_time = time.time() - cleanup_start
-        timing_logger.info(f"Process cleanup: {cleanup_time:.3f}s")
+        self.log_timing(f"Process cleanup: {cleanup_time:.3f}s")
         
         # Video saving timing
         video_start = time.time()
@@ -520,7 +553,7 @@ class RobHFRollout(BaseRollout):
                     complete
                 )
         video_time = time.time() - video_start
-        timing_logger.info(f"Video saving: {video_time:.3f}s")
+        self.log_timing(f"Video saving: {video_time:.3f}s")
         
         # Data preparation timing
         data_prep_start = time.time()
@@ -554,7 +587,7 @@ class RobHFRollout(BaseRollout):
             batch_size=batch_size)
         
         data_prep_time = time.time() - data_prep_start
-        timing_logger.info(f"Data preparation: {data_prep_time:.3f}s")
+        self.log_timing(f"Data preparation: {data_prep_time:.3f}s")
         
         # Final summary
         minibatch_total_time = time.time() - minibatch_start
@@ -562,17 +595,17 @@ class RobHFRollout(BaseRollout):
         avg_generation_time = sum(generation_times) / len(generation_times) if generation_times else 0
         avg_env_time = sum(env_step_times) / len(env_step_times) if env_step_times else 0
         
-        timing_logger.info(f"--- Minibatch Summary ---")
-        timing_logger.info(f"Total minibatch time: {minibatch_total_time:.2f}s")
-        timing_logger.info(f"Environment setup: {env_setup_time:.3f}s")
-        timing_logger.info(f"Environment init: {env_init_time:.3f}s")
-        timing_logger.info(f"Average step time: {avg_step_time:.3f}s")
-        timing_logger.info(f"Average generation time: {avg_generation_time:.3f}s")
-        timing_logger.info(f"Average env step time: {avg_env_time:.3f}s")
-        timing_logger.info(f"Process cleanup: {cleanup_time:.3f}s")
-        timing_logger.info(f"Video saving: {video_time:.3f}s")
-        timing_logger.info(f"Data preparation: {data_prep_time:.3f}s")
-        timing_logger.info(f"Total steps executed: {len(step_times)}")
+        self.log_timing(f"--- Minibatch Summary ---")
+        self.log_timing(f"Total minibatch time: {minibatch_total_time:.2f}s")
+        self.log_timing(f"Environment setup: {env_setup_time:.3f}s")
+        self.log_timing(f"Environment init: {env_init_time:.3f}s")
+        self.log_timing(f"Average step time: {avg_step_time:.3f}s")
+        self.log_timing(f"Average generation time: {avg_generation_time:.3f}s")
+        self.log_timing(f"Average env step time: {avg_env_time:.3f}s")
+        self.log_timing(f"Process cleanup: {cleanup_time:.3f}s")
+        self.log_timing(f"Video saving: {video_time:.3f}s")
+        self.log_timing(f"Data preparation: {data_prep_time:.3f}s")
+        self.log_timing(f"Total steps executed: {len(step_times)}")
         
         return DataProto(batch=output_batch)
     
@@ -584,7 +617,7 @@ class RobHFRollout(BaseRollout):
             attention_mask = prompts['attention_mask']  # left-padded attention_mask
             pixel_values = prompts["pixel_values"]
             
-            timing_logger.info(f"    Model input shapes: input_ids={idx.shape}, pixel_values={pixel_values.shape}")
+            self.log_timing(f"    Model input shapes: input_ids={idx.shape}, pixel_values={pixel_values.shape}")
         
             # Parameter loading timing
             param_setup_start = time.time()
@@ -601,7 +634,7 @@ class RobHFRollout(BaseRollout):
                 param_ctx = FSDP.summon_full_params(self.module, writeback=False, recurse=False)
             
             param_setup_time = time.time() - param_setup_start
-            timing_logger.info(f"    FSDP param setup: {param_setup_time:.4f}s")
+            self.log_timing(f"    FSDP param setup: {param_setup_time:.4f}s")
             
             # Actual generation timing
             generation_start = time.time()
@@ -617,7 +650,7 @@ class RobHFRollout(BaseRollout):
                         temperature=temperature, )
             
             generation_time = time.time() - generation_start
-            timing_logger.info(f"    Core model generation: {generation_time:.4f}s")
+            self.log_timing(f"    Core model generation: {generation_time:.4f}s")
             
             # Post-processing timing
             postprocess_start = time.time()
@@ -645,10 +678,10 @@ class RobHFRollout(BaseRollout):
                 }
 
             postprocess_time = time.time() - postprocess_start
-            timing_logger.info(f"    Post-processing: {postprocess_time:.4f}s")
+            self.log_timing(f"    Post-processing: {postprocess_time:.4f}s")
             
             total_model_time = time.time() - model_gen_start
-            timing_logger.info(f"    Total model step: {total_model_time:.4f}s (setup: {param_setup_time:.4f}s, gen: {generation_time:.4f}s, post: {postprocess_time:.4f}s)")
+            self.log_timing(f"    Total model step: {total_model_time:.4f}s (setup: {param_setup_time:.4f}s, gen: {generation_time:.4f}s, post: {postprocess_time:.4f}s)")
             
             return batch
         

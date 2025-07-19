@@ -71,6 +71,7 @@ HYDRA_FULL_ERROR=1 python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=hf \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
+    actor_rollout_ref.rollout.timing_log_level=warning \
     actor_rollout_ref.ref.log_prob_micro_batch_size=32 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.kl_ctrl.kl_coef=0.00 \

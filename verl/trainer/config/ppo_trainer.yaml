@@ -95,6 +95,7 @@ actor_rollout_ref:
     num_images_in_input: 1  
     name: vllm
     temperature: 1.0
+    timing_log_level: warning  # debug/info/warning/error - use 'debug' for detailed timing
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
     prompt_length: ${data.max_prompt_length}  # not use for opensource

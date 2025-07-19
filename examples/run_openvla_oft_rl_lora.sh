@@ -5,7 +5,7 @@
 set -x
 
 export NCCL_DEBUG=WARN 
-export WANDB_API_KEY='YOUR WANDB KEY'
+export WANDB_API_KEY='b595ad2ae82010a9bae860f6188de6a9f9092a4e'
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export TOKENIZERS_PARALLELISM=true
 export CUDA_LAUNCH_BLOCKING=1
@@ -14,15 +14,16 @@ export TORCH_USE_CUDA_DSA=1
 PROJECT_NAME='SimpleVLA-RL-LoRA'
 EXPERIMENT_NAME='vla-lib10_lora_r32_alpha64_lr1e5' 
 # For openvla-oft Libero-Long traj1 SFT or traj all SFT models can be find in https://huggingface.co/collections/Haozhan72/simplevla-rl-6833311430cd9df52aeb1f86
-SFT_MODEL_PATH="YOUR SFT_MODEL_PATH"
-CKPT_PATH="THE PATH YOU WANT TO SAVE YOUR CKPT"
+SFT_MODEL_PATH="/home/jhchen/openvla-oft/ckpts/Openvla-oft-SFT-libero10-trajall"
+CKPT_PATH="/home/jhchen/openvla-oft/ckpts/rl"
 # DATASET_NAME can be libero_10 (libero_Long), libero_90, libero_spatial, libero_object, libero_goal
 DATASET_NAME="libero_10"
 VLA_NAME="openvla-oft"
-NUM_GPUS=8
+export CUDA_VISIBLE_DEVICES=6,7
+NUM_GPUS=2
 # If you want to use 2*8 GPU to RL. Set NUM_NODES=2
 NUM_NODES=1 
-ALIGN_PATH="YOUR PATH TO SimpleVLA-RL/align.json"
+ALIGN_PATH="./align.json"
 
 # LoRA Configuration
 LORA_RANK=32
@@ -39,7 +40,7 @@ HYDRA_FULL_ERROR=1 python -m verl.trainer.main_ppo \
     data.accuracy_upper_bound=0.9 \
     data.oversample_factor=1 \
     data.train_batch_size=64 \
-    data.val_batch_size=496 \
+    data.val_batch_size=64 \
     data.max_prompt_length=256 \
     data.max_response_length=128 \
     actor_rollout_ref.model.path=$SFT_MODEL_PATH \
@@ -66,7 +67,7 @@ HYDRA_FULL_ERROR=1 python -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.entropy_coeff=0. \
     actor_rollout_ref.rollout.num_images_in_input=1 \
-    actor_rollout_ref.rollout.val_micro_batch_size=8 \
+    actor_rollout_ref.rollout.val_micro_batch_size=16 \
     actor_rollout_ref.rollout.temperature=1.6 \
     actor_rollout_ref.rollout.experiment_name=$EXPERIMENT_NAME \
     actor_rollout_ref.rollout.micro_batch_size=1 \
@@ -81,6 +82,7 @@ HYDRA_FULL_ERROR=1 python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=hf \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
+    actor_rollout_ref.rollout.timing_log_level=debug \
     actor_rollout_ref.ref.log_prob_micro_batch_size=32 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.kl_ctrl.kl_coef=0.00 \
@@ -99,4 +101,6 @@ HYDRA_FULL_ERROR=1 python -m verl.trainer.main_ppo \
     algorithm.adv_params.reward_model_gamma=1.0 \
     trainer.runtime_env=$ALIGN_PATH \
     trainer.wandb_mode=online \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
+
+# bash examples/run_openvla_oft_rl_lora.sh 1 2 > ./output_bs_64.log 2>&1 &
