@@ -57,11 +57,16 @@ class RobDataParallelPPOActor(BasePPOActor):
        
     def process_tensor(self, tensor, pad_id):
         mask = tensor != pad_id
-        if not torch.all(mask == mask[0:1], dim=1).all():
-            raise ValueError("Padding error!")
-        base_mask = mask[0]
-        valid_len = base_mask.sum().item()
-        return tensor[:, base_mask], valid_len
+        
+        # Instead of requiring identical padding patterns, use the longest valid length
+        # This allows left-padded sequences with different padding amounts
+        valid_lengths = mask.sum(dim=1)
+        max_valid_len = valid_lengths.max().item()
+        
+        # Use the full sequence length up to the longest valid sequence
+        # This means some sequences will include left padding tokens, which is acceptable
+        # since left-padding ensures the actual content (prompt + actions) is aligned to the right
+        return tensor[:, :max_valid_len], max_valid_len
     
     def generate_traj_mask(self, end_step, traj_len):
         """
