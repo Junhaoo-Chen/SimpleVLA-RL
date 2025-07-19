@@ -318,18 +318,19 @@ class RobHFRollout(BaseRollout):
         
         batch_prompts = prompts.chunk(chunks=num_chunks)
         
-        chunk_times = []
-        for i, p in enumerate(batch_prompts):
-            chunk_start = time.time()
-            result = self._generate_minibatch(p)
-            chunk_time = time.time() - chunk_start
-            chunk_times.append(chunk_time)
-            self.log_timing(f"Chunk {i+1}/{num_chunks} completed in {chunk_time:.2f}s")
+        # chunk_times = []
+        # for i, p in enumerate(batch_prompts):
+        #     chunk_start = time.time()
+        #     result = self._generate_minibatch(p)
+        #     chunk_time = time.time() - chunk_start
+        #     chunk_times.append(chunk_time)
+        #     self.log_timing(f"Chunk {i+1}/{num_chunks} completed in {chunk_time:.2f}s")
         
         output = DataProto.concat([self._generate_minibatch(p) for p in batch_prompts])
         
         total_time = time.time() - rollout_start_time
-        self.log_timing(f"=== ROLLOUT COMPLETE: Total time={total_time:.2f}s, Avg chunk time={sum(chunk_times)/len(chunk_times):.2f}s ===")
+        # self.log_timing(f"=== ROLLOUT COMPLETE: Total time={total_time:.2f}s, Avg chunk time={sum(chunk_times)/len(chunk_times):.2f}s ===")
+        self.log_timing(f"=== ROLLOUT COMPLETE: Total time={total_time:.2f}s ===")
         return output
     
     
